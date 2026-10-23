@@ -258,9 +258,9 @@ powerline_extra_symbols='
 # Nerd Fonts から適用するグリフ
 select_nerd_symbols="
   # Seti-UI + Custom
-  SelectMore(0uE5FA, 0uE6B7)
+  SelectMore(0uE5FA, 0uE6BB)
   # Devicons
-  SelectMore(0uE700, 0uE8E3)
+  SelectMore(0uE700, 0uE958)
   # Font Awesome
   SelectMore(0uED00, 0uF2FF)
   # Font Awesome Extension
@@ -277,11 +277,11 @@ select_nerd_symbols="
   SelectMore(0u23FB, 0u23FE)
   SelectMore(0u2B58)
   # Font Logos
-  SelectMore(0uF300, 0uF381)
+  SelectMore(0uF300, 0uF385)
   # Pomicons
   SelectMore(0uE000, 0uE00A)
   # Codicons
-  SelectMore(0uEA60, 0uEC1E)
+  SelectMore(0uEA60, 0uEC84)
   # Other
   SelectMore(0u2630)
 "
