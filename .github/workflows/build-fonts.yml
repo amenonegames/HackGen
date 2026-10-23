@@ -144,3 +144,14 @@ jobs:
             reports/
           if-no-files-found: warn
           retention-days: 14
+
+      - name: Upload failed comparison inputs
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: font-comparison-inputs-${{ github.run_id }}
+          path: |
+            baseline/build/*.ttf
+            candidate/build/*.ttf
+          if-no-files-found: ignore
+          retention-days: 3
