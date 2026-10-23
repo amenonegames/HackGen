@@ -1,3 +1,23 @@
+# Ameno: HackGen ベースの Nerd Fonts 更新版
+
+この Fork は Nerd Fonts **3.5.1** を使用し、OpenAI (`U+EC81`) と Claude (`U+EC82`) のアイコンを追加します。通常文字の形状・文字幅を維持するため、同一環境で更新前後をビルドして比較します。
+
+通常の Unicode に割り当てられた電源記号・ハート・稲妻などは既存の形状を保持し、私用領域の Nerd アイコンを更新します。
+
+配布フォントは原版の予約名を避けて **Ameno** とします。HackGen Console NF に対応するフォント名は **Ameno Console NF** です。
+
+## ビルドと検証
+
+GitHub Actions の **Build and verify fonts** を実行してください。成功した run の `Ameno-NerdFonts-3.5.1-...` artifact に 12 本の TTF、ライセンス、比較結果、素材の SHA-256 とビルド環境を収録します。artifact の保存期間は 30 日です。
+
+検証では通常文字の輪郭・advance・LSB・ヒンティングとフォントの主要メトリクスを比較し、NF 版 4 本に両アイコンが収録されていることを確認します。改名後にも全グリフを再比較します。実際の端末での見え方は、インストール後に確認してください。
+
+Nerd Fonts 素材の出典とチェックサムは `source/NERD_FONTS_VERSION.json` にあります。更新時は公式リリースの `Hack.zip` の SHA-256 を検証し、Regular/Bold 素材と `hackgen_generator.sh` の収録範囲を更新してください。CI の baseline は更新前コミットに固定しています。
+
+以下は原版の説明です。
+
+---
+
 # プログラミングフォント 白源 (はくげん／HackGen)
 
 HackGen is a composite font of Hack and GenJyuu-Gothic.

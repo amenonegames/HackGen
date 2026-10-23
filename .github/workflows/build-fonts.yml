@@ -1,0 +1,157 @@
+name: Build and verify fonts
+
+on:
+  push:
+    branches:
+      - master
+      - update/nerd-fonts-3.5.1
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    env:
+      BASELINE_COMMIT: 6960f16d830ef1b76ccf8d99ed871a6241c28e7d
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out candidate
+        uses: actions/checkout@v7
+        with:
+          path: candidate
+          persist-credentials: false
+
+      - name: Check out baseline
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.BASELINE_COMMIT }}
+          path: baseline
+          persist-credentials: false
+
+      - name: Set up build Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.8.18'
+
+      - name: Install build tools
+        run: |
+          mkdir -p logs reports
+          sudo apt-get update 2>&1 | tee logs/apt-update.log
+          sudo apt-get install --no-install-recommends -y fontforge ttfautohint 2>&1 | tee logs/apt-install.log
+          python -m venv "$RUNNER_TEMP/font-build"
+          "$RUNNER_TEMP/font-build/bin/python" -m pip install fonttools==3.44.0 2>&1 | tee logs/build-dependencies.log
+
+      - name: Build baseline
+        working-directory: baseline
+        run: |
+          export PATH="$RUNNER_TEMP/font-build/bin:$PATH"
+          sed -i 's|redirection_stderr="/dev/null"|redirection_stderr="/dev/stderr"|' hackgen_generator.sh
+          bash make_hackgen.sh 2>&1 | tee ../logs/baseline-build.log
+          test "$(find build -maxdepth 1 -name '*.ttf' -type f | wc -l)" -eq 12
+
+      - name: Build candidate
+        if: ${{ !cancelled() }}
+        working-directory: candidate
+        run: |
+          export PATH="$RUNNER_TEMP/font-build/bin:$PATH"
+          sed -i 's|redirection_stderr="/dev/null"|redirection_stderr="/dev/stderr"|' hackgen_generator.sh
+          bash make_hackgen.sh 2>&1 | tee ../logs/candidate-build.log
+          test "$(find build -maxdepth 1 -name '*.ttf' -type f | wc -l)" -eq 12
+
+      - name: Set up validation Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12.12'
+
+      - name: Install validation tools
+        run: |
+          python -m venv "$RUNNER_TEMP/font-validation"
+          "$RUNNER_TEMP/font-validation/bin/python" -m pip install fonttools==4.60.1 2>&1 | tee logs/validation-dependencies.log
+
+      - name: Test font validation
+        run: |
+          "$RUNNER_TEMP/font-validation/bin/python" -m unittest discover -s candidate/tests -v
+
+      - name: Validate unchanged text and new icons
+        run: |
+          "$RUNNER_TEMP/font-validation/bin/python" candidate/scripts/validate_fonts.py \
+            --baseline baseline/build --candidate candidate/build --report reports/font-validation.json \
+            2>&1 | tee logs/font-validation.log
+
+      - name: Prepare renamed font package
+        run: |
+          "$RUNNER_TEMP/font-validation/bin/python" candidate/scripts/rename_fonts.py \
+            --input candidate/build --output dist --report reports/font-renaming.json \
+            2>&1 | tee logs/font-renaming.log
+          test "$(find dist -maxdepth 1 -name 'Ameno*.ttf' -type f | wc -l)" -eq 12
+          mkdir -p dist/licenses
+          cp candidate/LICENSE dist/LICENSE
+          cp candidate/source/LICENSE* dist/licenses/
+          cp candidate/source/NERD_FONTS_VERSION.json dist/
+          cp reports/*.json dist/
+          CANDIDATE_COMMIT=$(git -C candidate rev-parse HEAD)
+          export CANDIDATE_COMMIT
+          "$RUNNER_TEMP/font-validation/bin/python" - <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import subprocess
+
+          def output(*command):
+              return subprocess.check_output(command, text=True, stderr=subprocess.STDOUT).strip()
+
+          metadata = {
+              "upstream": "https://github.com/yuru7/HackGen",
+              "fork": "https://github.com/amenonegames/HackGen",
+              "baseline_commit": os.environ["BASELINE_COMMIT"],
+              "candidate_commit": os.environ["CANDIDATE_COMMIT"],
+              "nerd_fonts_version": "3.5.1",
+              "run_url": f'{os.environ["GITHUB_SERVER_URL"]}/{os.environ["GITHUB_REPOSITORY"]}/actions/runs/{os.environ["GITHUB_RUN_ID"]}',
+              "runner": "ubuntu-22.04",
+              "build_python": output(os.environ["RUNNER_TEMP"] + "/font-build/bin/python", "--version"),
+              "build_fonttools": "3.44.0",
+              "validation_python": output(os.environ["RUNNER_TEMP"] + "/font-validation/bin/python", "--version"),
+              "validation_fonttools": "4.60.1",
+              "system_packages": output("dpkg-query", "-W", "fontforge", "ttfautohint", "libfreetype6", "libharfbuzz0b"),
+              "font_sha256": {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(pathlib.Path("dist").glob("*.ttf"))},
+              "source_sha256": {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(pathlib.Path("candidate/source").glob("*.ttf"))},
+          }
+          pathlib.Path("dist/build-metadata.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+          PY
+
+      - name: Upload verified fonts
+        uses: actions/upload-artifact@v7
+        with:
+          name: Ameno-NerdFonts-3.5.1-${{ github.run_id }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload build logs and validation reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: font-build-diagnostics-${{ github.run_id }}
+          path: |
+            logs/
+            reports/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload failed comparison inputs
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: font-comparison-inputs-${{ github.run_id }}
+          path: |
+            baseline/build/*.ttf
+            candidate/build/*.ttf
+          if-no-files-found: ignore
+          retention-days: 3

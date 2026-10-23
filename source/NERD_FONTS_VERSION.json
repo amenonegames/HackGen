@@ -1,0 +1,18 @@
+{
+  "version": "3.5.1",
+  "release": "https://github.com/ryanoasis/nerd-fonts/releases/tag/v3.5.1",
+  "archive": "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.5.1/Hack.zip",
+  "archive_sha256": "fa24da7de7cefe7766614d27762570b20453c852fc1d5b657111666df9a5e449",
+  "source_sha256": {
+    "HackNerdFont-Bold.ttf": "add70efb723227c08400c4d0f0068cf9f1783e22f6702b811bafbf3f5920902c",
+    "HackNerdFont-Regular.ttf": "8cba545f0ab36d8f313a448676df9988d6c679a014ffed863e52305844e7b113"
+  },
+  "preserved_standard_symbols": {
+    "baseline_commit": "6960f16d830ef1b76ccf8d99ed871a6241c28e7d",
+    "reason": "Preserve non-private-use glyph shapes and metrics from the original HackGen build",
+    "source_sha256": {
+      "HackNerdFont-Legacy-Bold.ttf": "f475a3da22723f8e890e6e085e8c3115c127a637f5846d0a0be72c6c4f9f428e",
+      "HackNerdFont-Legacy-Regular.ttf": "98076ca3ed3535f5d5c38ffc50eb2b059bfda35d7b72a2f2758b15ff8695d0e5"
+    }
+  }
+}

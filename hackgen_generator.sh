@@ -72,6 +72,8 @@ mod_arrow_regular_src="modify_arrow_Hack-Regular.sfd"
 mod_arrow_bold_src="modify_arrow_Hack-Bold.sfd"
 nerd_patched_hack_regular_src="HackNerdFont-Regular.ttf"
 nerd_patched_hack_bold_src="HackNerdFont-Bold.ttf"
+legacy_nerd_patched_hack_regular_src="HackNerdFont-Legacy-Regular.ttf"
+legacy_nerd_patched_hack_bold_src="HackNerdFont-Legacy-Bold.ttf"
 genjyuu_regular_src="GenJyuuGothicL-Monospace-Regular.ttf"
 genjyuu_bold_src="GenJyuuGothicL-Monospace-Bold.ttf"
 
@@ -206,6 +208,13 @@ input_ideographic_space=`find $fonts_directories -follow -iname Ideographic_Spac
 # Search nerd patched hack
 input_nerd_patched_hack_regular=`find $fonts_directories -follow -iname "$nerd_patched_hack_regular_src" | head -n 1`
 input_nerd_patched_hack_bold=`find $fonts_directories -follow -iname "$nerd_patched_hack_bold_src"    | head -n 1`
+input_legacy_nerd_patched_hack_regular=`find $fonts_directories -follow -iname "$legacy_nerd_patched_hack_regular_src" | head -n 1`
+input_legacy_nerd_patched_hack_bold=`find $fonts_directories -follow -iname "$legacy_nerd_patched_hack_bold_src" | head -n 1`
+if [ -z "${input_legacy_nerd_patched_hack_regular}" -o -z "${input_legacy_nerd_patched_hack_bold}" ]
+then
+  echo "Error: $legacy_nerd_patched_hack_regular_src and/or $legacy_nerd_patched_hack_bold_src not found" >&2
+  exit 1
+fi
 
 # Check filename
 [ "$(basename $input_hack_regular)" != "$hack_regular_src" ] &&
@@ -258,9 +267,9 @@ powerline_extra_symbols='
 # Nerd Fonts から適用するグリフ
 select_nerd_symbols="
   # Seti-UI + Custom
-  SelectMore(0uE5FA, 0uE6B7)
+  SelectMore(0uE5FA, 0uE6BB)
   # Devicons
-  SelectMore(0uE700, 0uE8E3)
+  SelectMore(0uE700, 0uE958)
   # Font Awesome
   SelectMore(0uED00, 0uF2FF)
   # Font Awesome Extension
@@ -277,13 +286,20 @@ select_nerd_symbols="
   SelectMore(0u23FB, 0u23FE)
   SelectMore(0u2B58)
   # Font Logos
-  SelectMore(0uF300, 0uF381)
+  SelectMore(0uF300, 0uF385)
   # Pomicons
   SelectMore(0uE000, 0uE00A)
   # Codicons
-  SelectMore(0uEA60, 0uEC1E)
+  SelectMore(0uEA60, 0uEC84)
   # Other
   SelectMore(0u2630)
+"
+
+select_legacy_nerd_symbols="
+  ${select_nerd_symbols}
+  SelectFewer(0uE000, 0uF8FF)
+  SelectFewer(0uF0000, 0uFFFFD)
+  SelectFewer(0u100000, 0u10FFFD)
 "
 
 # 罫線記号
@@ -806,14 +822,26 @@ Print("Generate Nerd Fonts symbol for HackGen")
 
 # Set parameters
 input_list  = ["${input_nerd_patched_hack_regular}",    "${input_nerd_patched_hack_bold}"]
+legacy_input_list = ["${input_legacy_nerd_patched_hack_regular}", "${input_legacy_nerd_patched_hack_bold}"]
 output_list = ["${modified_hackgen_nerd_console_symbol_regular}", "${modified_hackgen_nerd_console_symbol_bold}"]
 
 # Begin loop of regular and bold
 i = 0
 while (i < SizeOf(input_list))
+  # 通常の Unicode 記号は旧素材の字形を維持し、PUA のアイコンだけを更新する。
+  Open(legacy_input_list[i])
+  SelectNone()
+  ${select_legacy_nerd_symbols}
+  UnlinkReference()
+  Copy()
+  Close()
+
   # Open Hack
   Print("Open " + input_list[i])
   Open(input_list[i])
+  SelectNone()
+  ${select_legacy_nerd_symbols}
+  Paste()
 
   # Nerd Fonts の記号を残し、残りを削除
   SelectNone()
@@ -858,14 +886,25 @@ Print("Generate Nerd Fonts symbol for HackGen35")
 
 # Set parameters
 input_list  = ["${input_nerd_patched_hack_regular}",    "${input_nerd_patched_hack_bold}"]
+legacy_input_list = ["${input_legacy_nerd_patched_hack_regular}", "${input_legacy_nerd_patched_hack_bold}"]
 output_list = ["${modified_hackgen35_nerd_console_symbol_regular}", "${modified_hackgen35_nerd_console_symbol_bold}"]
 
 # Begin loop of regular and bold
 i = 0
 while (i < SizeOf(input_list))
+  Open(legacy_input_list[i])
+  SelectNone()
+  ${select_legacy_nerd_symbols}
+  UnlinkReference()
+  Copy()
+  Close()
+
   # Open Hack
   Print("Open " + input_list[i])
   Open(input_list[i])
+  SelectNone()
+  ${select_legacy_nerd_symbols}
+  Paste()
 
   # Nerd Fonts の記号を残し、残りを削除
   SelectNone()
