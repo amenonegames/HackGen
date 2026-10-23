@@ -10,8 +10,25 @@ from validate_fonts import compare_fonts, find_fonts, sha256, write_report
 IDENTITY_NAME_IDS = {1, 2, 3, 4, 6, 16, 17, 18, 20, 21, 22, 25}
 
 
+def compare_preserved_tables(baseline, candidate):
+    errors = []
+    old_tags = set(baseline.reader.keys()) - {"name", "head", "DSIG"}
+    new_tags = set(candidate.reader.keys()) - {"name", "head", "DSIG"}
+    for tag in sorted(old_tags | new_tags):
+        if tag not in old_tags or tag not in new_tags:
+            errors.append({"kind": "table_presence_changed", "table": tag})
+        elif baseline.reader[tag] != candidate.reader[tag]:
+            errors.append({"kind": "table_bytes_changed", "table": tag})
+    old_head, new_head = vars(baseline["head"]), vars(candidate["head"])
+    for field in sorted((old_head.keys() | new_head.keys()) - {"checkSumAdjustment"}):
+        if old_head.get(field) != new_head.get(field):
+            errors.append({"kind": "head_field_changed", "field": field,
+                           "baseline": old_head.get(field), "candidate": new_head.get(field)})
+    return errors
+
+
 def rename_font(source, destination):
-    with TTFont(source, recalcTimestamp=False) as font:
+    with TTFont(source, recalcTimestamp=False, lazy=True) as font:
         changed_names = []
         for record in font["name"].names:
             if record.nameID not in IDENTITY_NAME_IDS:
@@ -27,7 +44,9 @@ def rename_font(source, destination):
             del font["DSIG"]
         font.save(destination)
     with TTFont(source) as baseline, TTFont(destination) as candidate:
+        preserved_table_errors = compare_preserved_tables(baseline, candidate)
         validation = compare_fonts(baseline, candidate, include_private=True, all_glyphs=True)
+        validation["errors"].extend(preserved_table_errors)
         for old_record in baseline["name"].names:
             if old_record.nameID in IDENTITY_NAME_IDS:
                 continue

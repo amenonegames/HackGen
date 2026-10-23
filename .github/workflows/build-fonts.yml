@@ -51,6 +51,7 @@ jobs:
         working-directory: baseline
         run: |
           export PATH="$RUNNER_TEMP/font-build/bin:$PATH"
+          sed -i 's|redirection_stderr="/dev/null"|redirection_stderr="/dev/stderr"|' hackgen_generator.sh
           bash make_hackgen.sh 2>&1 | tee ../logs/baseline-build.log
           test "$(find build -maxdepth 1 -name '*.ttf' -type f | wc -l)" -eq 12
 
@@ -59,6 +60,7 @@ jobs:
         working-directory: candidate
         run: |
           export PATH="$RUNNER_TEMP/font-build/bin:$PATH"
+          sed -i 's|redirection_stderr="/dev/null"|redirection_stderr="/dev/stderr"|' hackgen_generator.sh
           bash make_hackgen.sh 2>&1 | tee ../logs/candidate-build.log
           test "$(find build -maxdepth 1 -name '*.ttf' -type f | wc -l)" -eq 12
 
@@ -71,6 +73,10 @@ jobs:
         run: |
           python -m venv "$RUNNER_TEMP/font-validation"
           "$RUNNER_TEMP/font-validation/bin/python" -m pip install fonttools==4.60.1 2>&1 | tee logs/validation-dependencies.log
+
+      - name: Test font validation
+        run: |
+          "$RUNNER_TEMP/font-validation/bin/python" -m unittest discover -s candidate/tests -v
 
       - name: Validate unchanged text and new icons
         run: |

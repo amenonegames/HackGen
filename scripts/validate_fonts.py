@@ -2,6 +2,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import re
 
 from fontTools.pens.recordingPen import DecomposingRecordingPen
 from fontTools.ttLib import TTFont
@@ -37,12 +38,34 @@ def unicode_cmap(font):
     return result
 
 
+def variation_cmap(font):
+    result = {}
+    default_cmap = unicode_cmap(font)
+    for table in font["cmap"].tables:
+        if table.format != 14:
+            continue
+        for selector, entries in table.uvsDict.items():
+            for codepoint, glyph_name in entries:
+                names = default_cmap.get(codepoint, set()) if glyph_name is None else {glyph_name}
+                result.setdefault((codepoint, selector), set()).update(names)
+    return result
+
+
 def glyph_signature(font, glyph_set, glyph_name):
     pen = DecomposingRecordingPen(glyph_set)
     glyph_set[glyph_name].draw(pen)
     glyph = font["glyf"][glyph_name]
     instructions = bytes(glyph.program.getBytecode()) if hasattr(glyph, "program") else b""
     return pen.value, font["hmtx"][glyph_name], instructions
+
+
+def compare_glyphs(baseline, candidate, old_set, new_set, old_names, new_names, label):
+    old_signatures = [glyph_signature(baseline, old_set, name) for name in old_names]
+    new_signatures = [glyph_signature(candidate, new_set, name) for name in new_names]
+    return [{"kind": kind, "codepoint": label}
+            for index, kind in enumerate(("outline", "advance_or_lsb", "glyph_hinting"))
+            if any(not any(old[index] == new[index] for new in new_signatures)
+                   for old in old_signatures)]
 
 
 def compare_fonts(baseline, candidate, include_private=False, all_glyphs=False):
@@ -71,22 +94,34 @@ def compare_fonts(baseline, candidate, include_private=False, all_glyphs=False):
         if not new_names:
             errors.append({"kind": "missing_codepoint", "codepoint": label})
             continue
-        old_signatures = [glyph_signature(baseline, old_set, name) for name in old_names]
-        new_signatures = [glyph_signature(candidate, new_set, name) for name in new_names]
-        for index, kind in enumerate(("outline", "advance_or_lsb", "glyph_hinting")):
-            if any(not any(old[index] == new[index] for new in new_signatures)
-                   for old in old_signatures):
-                errors.append({"kind": kind, "codepoint": label})
+        errors.extend(compare_glyphs(baseline, candidate, old_set, new_set,
+                                     old_names, new_names, label))
+    old_variations, new_variations = variation_cmap(baseline), variation_cmap(candidate)
+    checked_variations = 0
+    for (codepoint, selector), old_names in sorted(old_variations.items()):
+        if not include_private and is_private_use(codepoint):
+            continue
+        checked_variations += 1
+        label = f"U+{codepoint:04X} U+{selector:04X}"
+        new_names = new_variations.get((codepoint, selector))
+        if not new_names:
+            errors.append({"kind": "missing_variation_sequence", "codepoint": label})
+        elif not old_names:
+            errors.append({"kind": "invalid_baseline_variation_sequence", "codepoint": label})
+        else:
+            errors.extend(compare_glyphs(baseline, candidate, old_set, new_set,
+                                         old_names, new_names, label))
     if all_glyphs:
         for name in baseline.getGlyphOrder():
             if name not in new_set:
                 errors.append({"kind": "missing_glyph", "glyph": name})
             elif glyph_signature(baseline, old_set, name) != glyph_signature(candidate, new_set, name):
                 errors.append({"kind": "glyph_changed", "glyph": name})
-    return {"checked_codepoints": checked, "errors": errors}
+    return {"checked_codepoints": checked, "checked_variation_sequences": checked_variations,
+            "errors": errors}
 
 
-def validate_icons(font):
+def validate_icons(font, expected_advance):
     errors, details = [], {}
     cmap, glyph_set = unicode_cmap(font), font.getGlyphSet()
     for codepoint in (0xEC81, 0xEC82):
@@ -103,8 +138,46 @@ def validate_icons(font):
         details[label] = {"glyphs": sorted(names), "advances": advances}
         if len(advances) != 1 or advances[0] <= 0:
             errors.append({"kind": "invalid_icon_advance", "codepoint": label})
+        if advances != [expected_advance]:
+            errors.append({"kind": "unexpected_icon_advance", "codepoint": label,
+                           "expected": expected_advance, "actual": advances})
     if len(details) == 2 and details["U+EC81"]["advances"] != details["U+EC82"]["advances"]:
         errors.append({"kind": "inconsistent_icon_advance"})
+    return details, errors
+
+
+def nerd_selection_ranges(generator_text):
+    block = re.search(r"(?ms)^select_nerd_symbols=([\"'])[ \t]*\n(.*?)^\1[ \t]*$", generator_text)
+    if block is None:
+        raise ValueError("Cannot find select_nerd_symbols in hackgen_generator.sh")
+    ranges = []
+    for line in block[2].splitlines():
+        selection = line.partition("#")[0].strip()
+        if not selection:
+            continue
+        match = re.fullmatch(r"SelectMore\(0u([0-9A-Fa-f]+)(?:,\s*0u([0-9A-Fa-f]+))?\)", selection)
+        if match is None:
+            raise ValueError(f"Unsupported Nerd Fonts selection: {selection}")
+        start, end = int(match[1], 16), int(match[2] or match[1], 16)
+        if end < start:
+            raise ValueError(f"Reversed Nerd Fonts selection: {selection}")
+        ranges.append((start, end))
+    if not ranges:
+        raise ValueError("select_nerd_symbols contains no selections")
+    return ranges
+
+
+def selected_nerd_codepoints(source_font, ranges):
+    return {codepoint for codepoint in unicode_cmap(source_font)
+            if any(start <= codepoint <= end for start, end in ranges)}
+
+
+def validate_nerd_coverage(candidate, expected_codepoints):
+    missing = expected_codepoints - unicode_cmap(candidate).keys()
+    details = {"expected_codepoints": len(expected_codepoints),
+               "present_codepoints": len(expected_codepoints) - len(missing)}
+    errors = [{"kind": "missing_nerd_codepoint", "codepoint": f"U+{codepoint:04X}"}
+              for codepoint in sorted(missing)]
     return details, errors
 
 
@@ -140,6 +213,14 @@ def main():
     report = {"passed": False, "fonts": [], "errors": []}
     try:
         baseline_paths, candidate_paths = find_fonts(args.baseline), find_fonts(args.candidate)
+        repository = Path(__file__).resolve().parents[1]
+        selections = nerd_selection_ranges((repository / "hackgen_generator.sh").read_text(encoding="utf-8"))
+        nerd_codepoints = {}
+        for style in STYLES:
+            with TTFont(repository / "source" / f"HackNerdFont-{style}.ttf") as source:
+                nerd_codepoints[style] = selected_nerd_codepoints(source, selections)
+                if not nerd_codepoints[style]:
+                    raise ValueError(f"No selected Nerd Fonts glyphs in {style} source")
         for name, baseline_path in sorted(baseline_paths.items()):
             candidate_path = candidate_paths[name]
             with TTFont(baseline_path) as baseline, TTFont(candidate_path) as candidate:
@@ -149,8 +230,12 @@ def main():
                 result.update({"file": name, "baseline_sha256": sha256(baseline_path),
                                "candidate_sha256": sha256(candidate_path)})
                 if is_nf:
-                    result["icons"], icon_errors = validate_icons(candidate)
+                    expected_advance = 618 if name.startswith("HackGen35") else 540
+                    result["icons"], icon_errors = validate_icons(candidate, expected_advance)
                     result["errors"].extend(icon_errors)
+                    style = candidate_path.stem.rsplit("-", 1)[1]
+                    result["nerd_coverage"], coverage_errors = validate_nerd_coverage(candidate, nerd_codepoints[style])
+                    result["errors"].extend(coverage_errors)
                 report["fonts"].append(result)
         report["passed"] = all(not font["errors"] for font in report["fonts"])
     except Exception as error:
